@@ -1,0 +1,21 @@
+{
+  "name": "autoapply",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "workers",
+    "web"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "db:generate": "cd packages/db && npx drizzle-kit generate",
+    "db:migrate": "cd packages/db && npx drizzle-kit migrate"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.5.0"
+  }
+}

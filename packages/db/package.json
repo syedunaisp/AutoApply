@@ -1,0 +1,19 @@
+{
+  "name": "@autoapply/db",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./schema.ts",
+  "types": "./schema.ts",
+  "scripts": {
+    "generate": "drizzle-kit generate",
+    "migrate": "drizzle-kit migrate",
+    "build": "echo 'db package — no build step'"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.35.0"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.28.0",
+    "typescript": "^5.5.0"
+  }
+}

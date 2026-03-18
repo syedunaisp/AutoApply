@@ -1,0 +1,204 @@
+{
+  "name": {
+    "x": 306.0,
+    "y": 735,
+    "size": 22,
+    "style": "bold",
+    "align": "center"
+  },
+  "contact_line": {
+    "x": 306.0,
+    "y": 719,
+    "size": 9,
+    "style": "regular",
+    "align": "center"
+  },
+  "edu_label": {
+    "y": 697
+  },
+  "edu_school": {
+    "x": 36,
+    "y": 680,
+    "size": 10,
+    "style": "bold"
+  },
+  "edu_location": {
+    "x2": 576,
+    "y": 680,
+    "size": 9.5,
+    "align": "right"
+  },
+  "edu_degree": {
+    "x": 36,
+    "y": 667,
+    "size": 9.5,
+    "style": "italic"
+  },
+  "edu_dates": {
+    "x2": 576,
+    "y": 667,
+    "size": 9.5,
+    "align": "right"
+  },
+  "exp_label": {
+    "y": 647
+  },
+  "job1_company": {
+    "x": 36,
+    "y": 630,
+    "size": 10,
+    "style": "bold"
+  },
+  "job1_location": {
+    "x2": 576,
+    "y": 630,
+    "size": 9.5,
+    "align": "right"
+  },
+  "job1_title": {
+    "x": 36,
+    "y": 617,
+    "size": 9.5,
+    "style": "italic"
+  },
+  "job1_dates": {
+    "x2": 576,
+    "y": 617,
+    "size": 9.5,
+    "align": "right"
+  },
+  "job1_bullets": {
+    "x": 36,
+    "startY": 603,
+    "indent": 10,
+    "size": 9.5,
+    "lineHeight": 13,
+    "maxBullets": 5
+  },
+  "job2_company": {
+    "x": 36,
+    "y": 528,
+    "size": 10,
+    "style": "bold"
+  },
+  "job2_location": {
+    "x2": 576,
+    "y": 528,
+    "size": 9.5,
+    "align": "right"
+  },
+  "job2_title": {
+    "x": 36,
+    "y": 515,
+    "size": 9.5,
+    "style": "italic"
+  },
+  "job2_dates": {
+    "x2": 576,
+    "y": 515,
+    "size": 9.5,
+    "align": "right"
+  },
+  "job2_bullets": {
+    "x": 36,
+    "startY": 501,
+    "indent": 10,
+    "size": 9.5,
+    "lineHeight": 13,
+    "maxBullets": 4
+  },
+  "job3_company": {
+    "x": 36,
+    "y": 439,
+    "size": 10,
+    "style": "bold"
+  },
+  "job3_location": {
+    "x2": 576,
+    "y": 439,
+    "size": 9.5,
+    "align": "right"
+  },
+  "job3_title": {
+    "x": 36,
+    "y": 426,
+    "size": 9.5,
+    "style": "italic"
+  },
+  "job3_dates": {
+    "x2": 576,
+    "y": 426,
+    "size": 9.5,
+    "align": "right"
+  },
+  "job3_bullets": {
+    "x": 36,
+    "startY": 412,
+    "indent": 10,
+    "size": 9.5,
+    "lineHeight": 13,
+    "maxBullets": 3
+  },
+  "proj_label": {
+    "y": 355
+  },
+  "proj1_name": {
+    "x": 36,
+    "y": 338,
+    "size": 9.5,
+    "style": "bold"
+  },
+  "proj1_stack": {
+    "y": 338,
+    "size": 9.5
+  },
+  "proj1_link": {
+    "x2": 576,
+    "y": 338,
+    "size": 9,
+    "align": "right"
+  },
+  "proj1_bullets": {
+    "x": 36,
+    "startY": 325,
+    "indent": 10,
+    "size": 9.5,
+    "lineHeight": 13,
+    "maxBullets": 2
+  },
+  "proj2_name": {
+    "x": 36,
+    "y": 307,
+    "size": 9.5,
+    "style": "bold"
+  },
+  "proj2_stack": {
+    "y": 307,
+    "size": 9.5
+  },
+  "proj2_link": {
+    "x2": 576,
+    "y": 307,
+    "size": 9,
+    "align": "right"
+  },
+  "proj2_bullets": {
+    "x": 36,
+    "startY": 294,
+    "indent": 10,
+    "size": 9.5,
+    "lineHeight": 13,
+    "maxBullets": 2
+  },
+  "skills_label": {
+    "y": 274
+  },
+  "skills_rows": {
+    "x": 36,
+    "startY": 258,
+    "lineHeight": 13,
+    "size": 9.5,
+    "maxRows": 4,
+    "format": "category_bold | values_regular"
+  }
+}

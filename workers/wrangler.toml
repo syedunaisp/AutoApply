@@ -1,0 +1,46 @@
+name = "autoapply-worker"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[triggers]
+crons = ["0 8 * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "autoapply"
+database_id = "REPLACE_WITH_ACTUAL_D1_ID"
+
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "job-embeddings"
+dimensions = 1536
+metric = "cosine"
+
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "autoapply-resumes"
+
+[ai]
+binding = "AI"
+
+[[queues.producers]]
+binding = "JOB_QUEUE"
+queue = "job-processing-queue"
+
+[[queues.consumers]]
+queue = "job-processing-queue"
+max_batch_size = 5
+max_batch_timeout = 30
+max_retries = 3
+
+[vars]
+R2_PUBLIC_URL = "https://resumes.autoapply.io"
+
+# Secrets (set via `wrangler secret put`):
+# SCRAPER_URL        — VPS endpoint for Python scraper
+# APOLLO_API_KEY     — Apollo.io API key
+# ZERO_BOUNCE_API_KEY — ZeroBounce validation API key
+# AWS_SES_ENDPOINT   — existing API Gateway URL
+# AWS_API_KEY        — key for SES Lambda endpoint
+# SENDING_DOMAIN     — the warmed email sending domain
+# ADMIN_ALERT_EMAIL  — where zero-result alerts go
