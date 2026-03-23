@@ -10,10 +10,10 @@
     "build": "echo 'db package — no build step'"
   },
   "dependencies": {
-    "drizzle-orm": "^0.35.0"
+    "drizzle-orm": "^0.45.1"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.28.0",
+    "drizzle-kit": "^0.31.10",
     "typescript": "^5.5.0"
   }
 }

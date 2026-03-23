@@ -8,17 +8,16 @@ crons = ["0 8 * * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "autoapply"
-database_id = "REPLACE_WITH_ACTUAL_D1_ID"
+database_id = "ee7942f1-f29a-494c-a631-89e37c95e9c7"
+migrations_dir = "../packages/db/migrations"
 
 [[vectorize]]
 binding = "VECTORIZE"
 index_name = "job-embeddings"
-dimensions = 1536
-metric = "cosine"
 
-[[r2_buckets]]
-binding = "R2"
-bucket_name = "autoapply-resumes"
+# [[r2_buckets]]
+# binding = "R2"
+# bucket_name = "autoapply-resumes"
 
 [ai]
 binding = "AI"
@@ -34,9 +33,11 @@ max_batch_timeout = 30
 max_retries = 3
 
 [vars]
-R2_PUBLIC_URL = "https://resumes.autoapply.io"
+# R2_PUBLIC_URL — Moved to secrets to resolve binding conflict
+# (Previous value: "https://resumes.autoapply.io")
 
 # Secrets (set via `wrangler secret put`):
+# R2_PUBLIC_URL        — Public URL for R2 bucket
 # SCRAPER_URL        — VPS endpoint for Python scraper
 # APOLLO_API_KEY     — Apollo.io API key
 # ZERO_BOUNCE_API_KEY — ZeroBounce validation API key
