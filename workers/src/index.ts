@@ -24,7 +24,7 @@ export default {
   },
 
   // ─── HTTP API — serves the Next.js dashboard ──────────────────────
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url)
     const path = url.pathname
 
@@ -68,9 +68,35 @@ export default {
       else if (path === '/api/stats' && request.method === 'GET') {
         response = await handleGetStats(env, url)
       }
-      // SES Bounce/Complaint Webhook
-      else if (path === '/api/webhooks/ses' && request.method === 'POST') {
-        response = await handleSESWebhook(env, request)
+      // Scraper push endpoint — called by VPS cron after scraping
+      else if (path === '/ingest-jobs' && request.method === 'POST') {
+        const ingestKey = request.headers.get('x-ingest-key')
+        if (!ingestKey || ingestKey !== env.WORKER_INGEST_KEY) {
+          response = new Response('Unauthorized', { status: 401 })
+        } else {
+          response = await handleIngestJobs(env, request)
+        }
+      }
+      // TEMPORARY — manual cron trigger for testing, remove after
+      else if (path === '/test/run-pipeline' && request.method === 'POST') {
+        const users = await getActiveUsers(env)
+        if (users.length === 0) {
+          response = json({ error: 'No active users found in DB' })
+        } else {
+          for (const user of users) {
+            ctx.waitUntil(runPipelineForUser(user, env))
+          }
+          response = json({ triggered: true, userCount: users.length, users: users.map(u => u.userId) })
+        }
+      }
+      // Resend Bounce/Complaint Webhook
+      // Configure in Resend dashboard: email.bounced, email.complained
+      else if (path === '/webhooks/resend') {
+        if (request.method !== 'POST') {
+          response = new Response('Method not allowed', { status: 405 })
+        } else {
+          response = await handleResendWebhook(env, request)
+        }
       }
       else {
         response = json({ error: 'Not found' }, 404)
@@ -331,43 +357,109 @@ async function handleGetStats(env: Env, url: URL): Promise<Response> {
   })
 }
 
-// ─── SES Bounce/Complaint Webhook ────────────────────────────────────────
+// ─── Scraper Ingest Handler ───────────────────────────────────────────────
 
-async function handleSESWebhook(env: Env, request: Request): Promise<Response> {
-  const body = await request.json() as any
-  const notificationType = body.notificationType || body.Type
+async function handleIngestJobs(env: Env, request: Request): Promise<Response> {
+  const body = await request.json() as {
+    keywords: string
+    location: string
+    jobs: any[]
+  }
 
-  if (notificationType === 'Bounce') {
-    const email = body.bounce?.bouncedRecipients?.[0]?.emailAddress
-    if (email) {
-      await env.DB.prepare(
-        'UPDATE outreach_events SET status = \'bounced\' WHERE recipient_email = ? AND status = \'sent\''
-      ).bind(email).run()
+  if (!Array.isArray(body.jobs) || body.jobs.length === 0) {
+    return json({ accepted: 0 })
+  }
 
-      // Auto-suppress the company domain on bounce
-      const domain = email.split('@')[1]
-      if (domain) {
-        await addToSuppression(env, null, email, domain, 'bounce', 'this_user')
-      }
+  // Log the scrape run to D1
+  await env.DB.prepare(`
+    INSERT INTO scrape_runs (id, search_keywords, search_location, source, result_count, status, run_at)
+    VALUES (?, ?, ?, 'jobspy', ?, 'success', ?)
+  `).bind(
+    crypto.randomUUID(),
+    body.keywords,
+    body.location,
+    body.jobs.length,
+    Math.floor(Date.now() / 1000)
+  ).run()
+
+  // Enqueue every job for processing — queue consumer handles dedup + D1 write
+  // Get all active users to fan out jobs to each user
+  const users = await getActiveUsers(env)
+  let enqueued = 0
+
+  for (const user of users) {
+    for (const job of body.jobs) {
+      await (env.JOB_QUEUE as any).send({
+        type: 'process_job',
+        userId: user.userId,
+        job,
+      })
+      enqueued++
     }
   }
 
-  if (notificationType === 'Complaint') {
-    const email = body.complaint?.complainedRecipients?.[0]?.emailAddress
-    if (email) {
-      await env.DB.prepare(
-        'UPDATE outreach_events SET status = \'complained\' WHERE recipient_email = ? AND status = \'sent\''
-      ).bind(email).run()
+  return json({ accepted: body.jobs.length, enqueued, users: users.length })
+}
 
-      // Auto-suppress the company domain for ALL users on complaint
-      const domain = email.split('@')[1]
-      if (domain) {
-        await addToSuppression(env, null, email, domain, 'complaint', 'all_users')
-      }
+// ─── Resend Bounce/Complaint Webhook ─────────────────────────────────────
+// Register at https://resend.com/webhooks with events: email.bounced, email.complained
+
+async function handleResendWebhook(env: Env, request: Request): Promise<Response> {
+  const payload = await request.json() as {
+    type: string   // 'email.bounced' | 'email.complained' | 'email.delivered'
+    data: {
+      email_id: string
+      to:       string[]
+      from:     string
     }
   }
 
-  return json({ received: true })
+  const recipientEmail = payload.data.to?.[0]
+  const messageId      = payload.data.email_id
+
+  if (payload.type === 'email.bounced') {
+    // Update outreach_events status
+    await env.DB.prepare(`
+      UPDATE outreach_events
+      SET status = 'bounced'
+      WHERE ses_message_id = ?
+    `).bind(messageId).run()
+
+    // Look up user_id from the event so we can scope the suppression to this_user
+    const event = await env.DB.prepare(`
+      SELECT user_id FROM outreach_events
+      WHERE ses_message_id = ?
+    `).bind(messageId).first<{ user_id: string }>()
+
+    if (event && recipientEmail) {
+      const domain = recipientEmail.split('@')[1] || ''
+      await addToSuppression(env, event.user_id, recipientEmail, domain, 'bounce', 'this_user')
+    }
+  }
+
+  if (payload.type === 'email.complained') {
+    // Complaint = suppress for ALL users to protect shared sending domain reputation
+    await env.DB.prepare(`
+      UPDATE outreach_events
+      SET status = 'complained'
+      WHERE ses_message_id = ?
+    `).bind(messageId).run()
+
+    if (recipientEmail) {
+      const domain = recipientEmail.split('@')[1] || ''
+      await addToSuppression(env, null, recipientEmail, domain, 'complaint', 'all_users')
+    }
+
+    // Alert admin — complaint is serious for domain reputation
+    await writeDeadLetter(
+      env, 'email', null, null,
+      'RESEND_COMPLAINT',
+      `Spam complaint received from ${recipientEmail}`,
+      payload
+    )
+  }
+
+  return new Response('ok', { status: 200 })
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────

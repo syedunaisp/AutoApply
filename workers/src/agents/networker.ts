@@ -7,10 +7,10 @@
 // 5. Per-user daily cap (max 25/day — Rule 7)
 // 6. LLM email generation
 // 7. FROM address determination
-// 8. Send via AWS SES
+// 8. Send via Resend API
 // 9. Log to D1
 
-import type { Env, UserProfile, Job, Application, ApolloContact, EmailContent, SESParams, SESResult } from '@autoapply/types'
+import type { Env, UserProfile, Job, Application, ApolloContact, EmailContent, EmailSendParams, EmailSendResult } from '@autoapply/types'
 import { writeDeadLetter } from '../utils/dead-letter'
 import { hasOutreachBeenSent } from '../utils/idempotency'
 import { validateEmail } from './email-validator'
@@ -65,25 +65,30 @@ export async function runSniperOutreach(
   // ── Step 6: Generate email content with LLM ──
   const emailContent = await generateColdEmail(env, profile, job, contact, resumeUrl)
 
-  // ── Step 7: Determine FROM address based on user plan ──
-  const fromAddress = profile.plan === 'premium' && profile.customDomain
-    ? `${profile.firstName.toLowerCase()}@${profile.customDomain}`
-    : `${profile.firstName.toLowerCase()}.${profile.lastName.toLowerCase()}@mail.${env.SENDING_DOMAIN}`
+  // ── Step 7: Build FROM address using verified Resend domain ──
+  // Basic tier: firstname.lastname@<SENDING_DOMAIN>
+  // Reply-To is always the applicant's real personal email
+  // Hiring manager replies go directly to the applicant — we never see them
+  const sanitize = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9]/g, '')
 
-  // ── Step 8: Send via AWS SES (through existing API Gateway endpoint) ──
-  const sesResult = await sendViaSES(env, {
-    from: fromAddress,
-    replyTo: profile.personalEmail,   // Replies go to applicant directly
-    to: contact.email,
+  const fromAddress = `${sanitize(profile.firstName)}.${sanitize(profile.lastName)}@${env.SENDING_DOMAIN}`
+  const replyTo     = profile.personalEmail
+
+  // ── Step 8: Send via Resend API ──
+  const resendResult = await sendViaResend(env, {
+    from:    fromAddress,
+    replyTo: replyTo,             // Replies go directly to the applicant
+    to:      contact.email,
     subject: emailContent.subject,
-    html: emailContent.html,
-    text: emailContent.text,
+    html:    emailContent.html,
+    text:    emailContent.text,
     metadata: { userId: profile.userId, jobId: job.id, applicationId: application.id },
   })
 
   // ── Step 9: Log to D1 — always, success or failure (Rule 3) ──
   await env.DB.prepare(`
-    INSERT INTO outreach_events 
+    INSERT INTO outreach_events
     (id, user_id, application_id, channel, recipient_email, recipient_name, recipient_title,
      from_address, subject, body_text, status, ses_message_id, sent_at, created_at)
     VALUES (?, ?, ?, 'email', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -92,13 +97,13 @@ export async function runSniperOutreach(
     contact.email, contact.name || null, contact.title || null,
     fromAddress,
     emailContent.subject, emailContent.text,
-    sesResult.success ? 'sent' : 'failed',
-    sesResult.messageId || null,
-    sesResult.success ? Math.floor(Date.now() / 1000) : null,
+    resendResult.success ? 'sent' : 'failed',
+    resendResult.messageId || null,
+    resendResult.success ? Math.floor(Date.now() / 1000) : null,
     Math.floor(Date.now() / 1000)
   ).run()
 
-  return { channel: 'email', success: sesResult.success }
+  return { channel: 'email', success: resendResult.success }
 }
 
 // ─── Apollo Contact Lookup (with D1 caching) ─────────────────────────────
@@ -255,45 +260,44 @@ The html field should be the text wrapped in minimal HTML — no fancy styling.
   }
 }
 
-// ─── AWS SES Integration ─────────────────────────────────────────────────
+// ─── Resend Integration ──────────────────────────────────────────────────
 
-async function sendViaSES(
+async function sendViaResend(
   env: Env,
-  params: SESParams
-): Promise<SESResult> {
-  try {
-    const res = await fetch(env.AWS_SES_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': env.AWS_API_KEY,
-      },
-      body: JSON.stringify({
-        from:     params.from,
-        replyTo:  params.replyTo,
-        to:       params.to,
-        subject:  params.subject,
-        html:     params.html,
-        text:     params.text,
-        metadata: params.metadata,
-      }),
-    })
+  params: EmailSendParams
+): Promise<EmailSendResult> {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${env.RESEND_API_KEY}`,
+      'Content-Type':  'application/json',
+    },
+    body: JSON.stringify({
+      from:      params.from,
+      reply_to:  params.replyTo,
+      to:        [params.to],
+      subject:   params.subject,
+      html:      params.html,
+      text:      params.text,
+    }),
+  })
 
-    if (!res.ok) {
-      await writeDeadLetter(env, 'email', params.metadata.applicationId,
-        params.metadata.userId, 'SES_SEND_FAILED',
-        `SES returned ${res.status}`, params)
-      return { success: false }
-    }
-
-    const data = await res.json() as { messageId: string }
-    return { success: true, messageId: data.messageId }
-  } catch (err) {
-    await writeDeadLetter(env, 'email', params.metadata.applicationId,
-      params.metadata.userId, 'SES_NETWORK_ERROR',
-      err instanceof Error ? err.message : String(err), params)
+  if (!res.ok) {
+    const errorText = await res.text()
+    await writeDeadLetter(
+      env,
+      'email',
+      params.metadata.applicationId,
+      params.metadata.userId,
+      'RESEND_SEND_FAILED',
+      `Resend API returned ${res.status}: ${errorText}`,
+      params
+    )
     return { success: false }
   }
+
+  const data = await res.json() as { id: string }
+  return { success: true, messageId: data.id }
 }
 
 // ─── LinkedIn DM Queue Fallback ──────────────────────────────────────────

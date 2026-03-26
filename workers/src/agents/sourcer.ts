@@ -23,7 +23,7 @@ export async function runScraper(
       `${scraperUrl}/jobs?keywords=${encodeURIComponent(keywords)}&location=${encodeURIComponent(location)}`,
       {
         headers: {
-          'X-API-Key': env.SCRAPER_URL.includes('dev') ? 'dev-key-change-me' : '',
+          'X-API-Key': env.SCRAPER_API_KEY ?? '',
         },
       }
     )

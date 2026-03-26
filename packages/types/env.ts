@@ -19,9 +19,10 @@ export interface Env {
   SCRAPER_URL: string
   APOLLO_API_KEY: string
   ZERO_BOUNCE_API_KEY: string
-  AWS_SES_ENDPOINT: string
-  AWS_API_KEY: string
-  R2_PUBLIC_URL: string
+  RESEND_API_KEY: string
+  SCRAPER_API_KEY: string
+  WORKER_INGEST_KEY: string
   SENDING_DOMAIN: string
+  R2_PUBLIC_URL: string
   ADMIN_ALERT_EMAIL: string
 }

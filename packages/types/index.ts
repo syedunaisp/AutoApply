@@ -16,7 +16,7 @@ export type {
   OutreachEvent,
   EmailContent,
   ApolloContact,
-  SESParams,
-  SESResult,
+  EmailSendParams,
+  EmailSendResult,
   ZeroBounceStatus,
 } from './outreach'

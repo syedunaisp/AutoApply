@@ -15,9 +15,9 @@ migrations_dir = "../packages/db/migrations"
 binding = "VECTORIZE"
 index_name = "job-embeddings"
 
-# [[r2_buckets]]
-# binding = "R2"
-# bucket_name = "autoapply-resumes"
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "autoapply-resumes"
 
 [ai]
 binding = "AI"
@@ -37,11 +37,10 @@ max_retries = 3
 # (Previous value: "https://resumes.autoapply.io")
 
 # Secrets (set via `wrangler secret put`):
-# R2_PUBLIC_URL        — Public URL for R2 bucket
-# SCRAPER_URL        — VPS endpoint for Python scraper
-# APOLLO_API_KEY     — Apollo.io API key
+# RESEND_API_KEY      — Resend API key with sending access
+# SENDING_DOMAIN      — verified domain on Resend (e.g. mail.henceprove.com)
+# APOLLO_API_KEY      — Apollo.io API key
 # ZERO_BOUNCE_API_KEY — ZeroBounce validation API key
-# AWS_SES_ENDPOINT   — existing API Gateway URL
-# AWS_API_KEY        — key for SES Lambda endpoint
-# SENDING_DOMAIN     — the warmed email sending domain
-# ADMIN_ALERT_EMAIL  — where zero-result alerts go
+# R2_PUBLIC_URL       — Public URL for R2 bucket
+# ADMIN_ALERT_EMAIL   — where zero-result alerts go
+# SCRAPER_URL         — VPS endpoint for Python scraper

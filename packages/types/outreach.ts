@@ -33,8 +33,8 @@ export interface ApolloContact {
   companyDomain: string
 }
 
-// AWS SES send parameters
-export interface SESParams {
+// Email send parameters (provider-agnostic)
+export interface EmailSendParams {
   from: string
   replyTo: string
   to: string
@@ -48,8 +48,8 @@ export interface SESParams {
   }
 }
 
-// SES send result
-export interface SESResult {
+// Email send result (provider-agnostic)
+export interface EmailSendResult {
   success: boolean
   messageId?: string
 }
