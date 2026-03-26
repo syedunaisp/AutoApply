@@ -43,3 +43,4 @@ venv/
 # Misc
 *.log
 npm-debug.log*
+scraper/logs.txt
