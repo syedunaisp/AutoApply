@@ -15,22 +15,12 @@ WORKER_INGEST_KEY = os.environ.get("WORKER_INGEST_KEY", "")
 # DAILY SCHEDULER
 # ----------------------------
 def run_daily_scrape():
+    """APScheduler daily job — runs _scrape_and_push as a sync wrapper."""
+    import asyncio
     print("Running scheduled scrape at", datetime.utcnow().isoformat())
     try:
-        jobs_df = scrape_jobs(
-            site_name=["linkedin", "indeed", "glassdoor"],
-            search_term="software engineer",
-            location="United States",
-            results_wanted=50,
-            hours_old=24,
-            country_indeed="USA",
-        )
-
-        if jobs_df is not None and len(jobs_df) > 0:
-            print(f"Scraped {len(jobs_df)} jobs successfully")
-        else:
-            print("No jobs found in scheduled run")
-
+        asyncio.run(_scrape_and_push())
+        print("Scheduled scrape and push complete")
     except Exception as e:
         print("Scheduled scrape failed:", str(e))
 
