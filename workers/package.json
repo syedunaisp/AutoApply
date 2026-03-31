@@ -9,14 +9,14 @@
     "tail": "wrangler tail"
   },
   "dependencies": {
-    "drizzle-orm": "^0.35.0",
-    "pdf-lib": "^1.17.1",
     "@autoapply/db": "*",
-    "@autoapply/types": "*"
+    "@autoapply/types": "*",
+    "drizzle-orm": "^0.35.0",
+    "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
-    "wrangler": "^3.90.0",
     "@cloudflare/workers-types": "^4.20241205.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "wrangler": "^4.77.0"
   }
 }

@@ -39,7 +39,9 @@ export async function routeApplication(
   atsJobId: string | null,
   resumeBase64: string,
   track: 'sniper' | 'shotgun',
-  matchScore: number
+  matchScore: number,
+  resumeUrl?: string,
+  resumeR2Key?: string
 ): Promise<{ success: boolean; status: string }> {
 
   // Idempotency check — never apply to the same job twice
@@ -54,6 +56,7 @@ export async function routeApplication(
       jobId, userId, track, matchScore,
       atsStatus: 'manual_required',
       atsResponse: JSON.stringify({ reason: `${atsType} — no public API, manual submission required` }),
+      resumeUrl, resumeR2Key,
     })
     return { success: false, status: 'manual_required' }
   }
@@ -64,6 +67,7 @@ export async function routeApplication(
       jobId, userId, track, matchScore,
       atsStatus: 'manual_required',
       atsResponse: JSON.stringify({ reason: 'Unknown ATS — could not detect platform' }),
+      resumeUrl, resumeR2Key,
     })
     return { success: false, status: 'manual_required' }
   }
@@ -77,6 +81,7 @@ export async function routeApplication(
       jobId, userId, track, matchScore,
       atsStatus: 'failed',
       atsResponse: JSON.stringify({ error: 'Missing ATS tokens' }),
+      resumeUrl, resumeR2Key,
     })
     return { success: false, status: 'missing_tokens' }
   }
@@ -106,6 +111,7 @@ export async function routeApplication(
       atsStatus: result.success ? 'submitted' : 'failed',
       atsResponse: JSON.stringify(result.response),
       atsSubmittedAt: result.success ? Math.floor(Date.now() / 1000) : undefined,
+      resumeUrl, resumeR2Key,
     })
 
     if (!result.success) {
@@ -123,6 +129,7 @@ export async function routeApplication(
       jobId, userId, track, matchScore,
       atsStatus: 'failed',
       atsResponse: JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
+      resumeUrl, resumeR2Key,
     })
     return { success: false, status: 'exception' }
   }

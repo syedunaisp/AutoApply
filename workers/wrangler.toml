@@ -26,10 +26,20 @@ binding = "AI"
 binding = "JOB_QUEUE"
 queue = "job-processing-queue"
 
+[[queues.producers]]
+binding = "MATCH_QUEUE"
+queue = "match-queue"
+
 [[queues.consumers]]
 queue = "job-processing-queue"
 max_batch_size = 5
 max_batch_timeout = 30
+max_retries = 3
+
+[[queues.consumers]]
+queue = "match-queue"
+max_batch_size = 1
+max_batch_timeout = 60
 max_retries = 3
 
 [vars]

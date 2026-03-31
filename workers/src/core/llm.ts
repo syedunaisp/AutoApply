@@ -65,15 +65,19 @@ export async function rewriteResumeBullets(
     return parsed.bullets || []
   } catch {
     // Retry once on malformed JSON
-    const retry = await callLLM(
-      env,
-      'Return ONLY valid JSON. No markdown, no explanation.',
-      `Rewrite these resume bullets for this job:\n\nJOB:\n${jobDescription.substring(0, 1000)}\n\nBULLETS:\n${JSON.stringify(profile.achievements)}\n\nReturn JSON: { "bullets": string[] }`,
-      'high',
-      true
-    )
-    const retryParsed = JSON.parse(retry)
-    return retryParsed.bullets || []
+    try {
+      const retry = await callLLM(
+        env,
+        'Return ONLY valid JSON. No markdown, no explanation.',
+        `Rewrite these resume bullets for this job:\n\nJOB:\n${jobDescription.substring(0, 1000)}\n\nBULLETS:\n${JSON.stringify(profile.achievements)}\n\nReturn JSON: { "bullets": string[] }`,
+        'high',
+        true
+      )
+      const retryParsed = JSON.parse(retry)
+      return retryParsed.bullets || []
+    } catch {
+      return []
+    }
   }
 }
 

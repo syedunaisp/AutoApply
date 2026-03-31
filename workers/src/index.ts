@@ -10,7 +10,7 @@ import { rewriteResumeBullets } from './core/llm'
 import { generateTailoredResume } from './core/pdf-generator'
 import { runSniperOutreach } from './agents/networker'
 import { writeDeadLetter } from './utils/dead-letter'
-import { handleQueueBatch } from './queues/job-processor'
+import { handleQueueBatch, handleMatchBatch } from './queues/job-processor'
 import { addToSuppression } from './utils/suppression'
 
 export default {
@@ -77,18 +77,6 @@ export default {
           response = await handleIngestJobs(env, request)
         }
       }
-      // TEMPORARY — manual cron trigger for testing, remove after
-      else if (path === '/test/run-pipeline' && request.method === 'POST') {
-        const users = await getActiveUsers(env)
-        if (users.length === 0) {
-          response = json({ error: 'No active users found in DB' })
-        } else {
-          for (const user of users) {
-            ctx.waitUntil(runPipelineForUser(user, env))
-          }
-          response = json({ triggered: true, userCount: users.length, users: users.map(u => u.userId) })
-        }
-      }
       // Resend Bounce/Complaint Webhook
       // Configure in Resend dashboard: email.bounced, email.complained
       else if (path === '/webhooks/resend') {
@@ -114,7 +102,11 @@ export default {
 
   // ─── Queue Consumer ────────────────────────────────────────────────
   async queue(batch: MessageBatch, env: Env): Promise<void> {
-    await handleQueueBatch(batch as any, env)
+    if (batch.queue === 'match-queue') {
+      await handleMatchBatch(batch as any, env)
+    } else {
+      await handleQueueBatch(batch as any, env)
+    }
   },
 }
 

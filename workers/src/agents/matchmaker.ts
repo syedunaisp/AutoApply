@@ -51,6 +51,10 @@ export async function matchJob(
 
       if (vectorQuery.matches && vectorQuery.matches.length > 0) {
         matchScore = (vectorQuery.matches[0].score || 0) * 100
+      } else {
+        // Vectorize returned no matches (index propagation lag or cold start)
+        // Fall back to LLM scoring rather than defaulting to 0
+        matchScore = await estimateMatchWithLLM(env, jobDescription, profile)
       }
     } else {
       // Fallback: use LLM to estimate match if no embeddings available

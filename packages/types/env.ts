@@ -14,6 +14,7 @@ export interface Env {
 
   // Cloudflare Queues
   JOB_QUEUE: Queue
+  MATCH_QUEUE: Queue
 
   // Worker Secrets
   SCRAPER_URL: string
