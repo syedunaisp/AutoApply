@@ -290,6 +290,11 @@ async function handleParseResume(env: Env, request: Request): Promise<Response> 
       'medium',
       true
     )
+
+    if (!raw?.trim()) {
+      return json({ error: 'Workers AI daily free quota exhausted (10,000 neurons/day). Upgrade to Cloudflare Workers Paid plan ($5/mo) to use this feature.' }, 503)
+    }
+
     const parsed = JSON.parse(raw)
     return json(parsed)
   } catch (err) {
@@ -297,7 +302,7 @@ async function handleParseResume(env: Env, request: Request): Promise<Response> 
     const isQuota = msg.includes('neurons') || msg.includes('quota') || msg.includes('allocation')
     return json({
       error: isQuota
-        ? 'Workers AI daily quota exhausted. Upgrade to Cloudflare Workers Paid plan ($5/mo) to use this feature.'
+        ? 'Workers AI daily free quota exhausted (10,000 neurons/day). Upgrade to Cloudflare Workers Paid plan ($5/mo) to use this feature.'
         : `Resume parsing failed: ${msg}`,
     }, 500)
   }
