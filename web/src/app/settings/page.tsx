@@ -71,9 +71,9 @@ export default function SettingsPage() {
       setParsing(true)
       setParseError('')
 
-      // Extract text from PDF client-side using PDF.js
-      const pdfjsLib = await import('pdfjs-dist')
-      pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
+      // Extract text from PDF client-side using PDF.js legacy build
+      const pdfjsLib = await import('pdfjs-dist/build/pdf.min.js' as any)
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js'
 
       const arrayBuffer = await file.arrayBuffer()
       const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise
