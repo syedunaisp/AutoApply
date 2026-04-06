@@ -3,8 +3,21 @@
 import { useEffect, useState } from 'react'
 import { getProfile, updateProfile } from '@/lib/api-client'
 
-// For now, hardcode a default user ID — in production this comes from auth
-const DEFAULT_USER_ID = 'user_001'
+const USER_ID = process.env.NEXT_PUBLIC_USER_ID || 'test-user-1'
+
+interface ExperienceEntry {
+  company: string
+  title: string
+  startDate: string
+  endDate: string
+  bullets: string[]
+}
+
+interface EducationEntry {
+  institution: string
+  degree: string
+  field: string
+}
 
 interface ProfileFormData {
   phone: string
@@ -17,18 +30,8 @@ interface ProfileFormData {
   yearsExperience: number
   summary: string
   skills: string[]
-  experience: Array<{
-    company: string
-    title: string
-    startDate: string
-    endDate: string
-    bullets: string[]
-  }>
-  education: Array<{
-    institution: string
-    degree: string
-    field: string
-  }>
+  experience: ExperienceEntry[]
+  education: EducationEntry[]
   achievements: string[]
   targetRoles: string[]
   targetLocations: string[]
@@ -54,16 +57,16 @@ export default function SettingsPage() {
   const [roleInput, setRoleInput] = useState('')
   const [locationInput, setLocationInput] = useState('')
   const [achievementInput, setAchievementInput] = useState('')
+  const [bulletInputs, setBulletInputs] = useState<string[]>([])
 
-  useEffect(() => {
-    loadProfile()
-  }, [])
+  useEffect(() => { loadProfile() }, [])
 
   async function loadProfile() {
     try {
       setLoading(true)
-      const data = await getProfile(DEFAULT_USER_ID)
+      const data = await getProfile(USER_ID)
       if (data.profile) {
+        const exp = safeJsonParse<ExperienceEntry[]>(data.profile.experience, [])
         setForm({
           phone: data.profile.phone || '',
           location: data.profile.location || '',
@@ -75,7 +78,7 @@ export default function SettingsPage() {
           yearsExperience: data.profile.years_experience || 0,
           summary: data.profile.summary || '',
           skills: safeJsonParse(data.profile.skills, []),
-          experience: safeJsonParse(data.profile.experience, []),
+          experience: exp,
           education: safeJsonParse(data.profile.education, []),
           achievements: safeJsonParse(data.profile.achievements, []),
           targetRoles: safeJsonParse(data.profile.target_roles, []),
@@ -84,6 +87,7 @@ export default function SettingsPage() {
           minSalary: data.profile.min_salary || 0,
           visaRequired: !!data.profile.visa_required,
         })
+        setBulletInputs(exp.map(() => ''))
       }
     } catch (err) {
       console.error('Failed to load profile:', err)
@@ -95,7 +99,7 @@ export default function SettingsPage() {
   async function handleSave() {
     try {
       setSaving(true)
-      await updateProfile({ ...form, userId: DEFAULT_USER_ID })
+      await updateProfile({ ...form, userId: USER_ID })
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     } catch (err) {
@@ -119,6 +123,45 @@ export default function SettingsPage() {
     setForm({ ...form, [key]: current.filter((_, i) => i !== index) })
   }
 
+  // ── Experience helpers ──────────────────────────────────────────────────
+  function addExperience() {
+    setForm({ ...form, experience: [...form.experience, { company: '', title: '', startDate: '', endDate: '', bullets: [] }] })
+    setBulletInputs([...bulletInputs, ''])
+  }
+
+  function removeExperience(index: number) {
+    setForm({ ...form, experience: form.experience.filter((_, i) => i !== index) })
+    setBulletInputs(bulletInputs.filter((_, i) => i !== index))
+  }
+
+  function updateExperience(index: number, field: keyof ExperienceEntry, value: string) {
+    setForm({ ...form, experience: form.experience.map((exp, i) => i === index ? { ...exp, [field]: value } : exp) })
+  }
+
+  function addBullet(expIndex: number) {
+    const value = bulletInputs[expIndex]?.trim()
+    if (!value) return
+    setForm({ ...form, experience: form.experience.map((exp, i) => i === expIndex ? { ...exp, bullets: [...exp.bullets, value] } : exp) })
+    setBulletInputs(bulletInputs.map((v, i) => (i === expIndex ? '' : v)))
+  }
+
+  function removeBullet(expIndex: number, bulletIndex: number) {
+    setForm({ ...form, experience: form.experience.map((exp, i) => i === expIndex ? { ...exp, bullets: exp.bullets.filter((_, j) => j !== bulletIndex) } : exp) })
+  }
+
+  // ── Education helpers ───────────────────────────────────────────────────
+  function addEducation() {
+    setForm({ ...form, education: [...form.education, { institution: '', degree: '', field: '' }] })
+  }
+
+  function removeEducation(index: number) {
+    setForm({ ...form, education: form.education.filter((_, i) => i !== index) })
+  }
+
+  function updateEducation(index: number, field: keyof EducationEntry, value: string) {
+    setForm({ ...form, education: form.education.map((edu, i) => i === index ? { ...edu, [field]: value } : edu) })
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
@@ -129,7 +172,6 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-4xl">
-      {/* Header */}
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">
@@ -151,6 +193,7 @@ export default function SettingsPage() {
       </div>
 
       <div className="space-y-6">
+
         {/* Personal Info */}
         <Section title="Personal Information">
           <div className="grid grid-cols-2 gap-4">
@@ -184,76 +227,148 @@ export default function SettingsPage() {
               onChange={(e) => setForm({ ...form, summary: e.target.value })}
               rows={3}
               className="w-full bg-[#0a0b0f] border border-white/10 rounded-xl px-4 py-3 text-sm text-surface-50 placeholder-surface-800 focus:outline-none focus:border-brand-500 resize-none"
-              placeholder="2-3 sentence professional summary..."
+              placeholder="2-3 sentence professional summary used in cold emails and resume tailoring..."
             />
+          </div>
+        </Section>
+
+        {/* Experience */}
+        <Section title="Work Experience">
+          <div className="space-y-4">
+            {form.experience.length === 0 && (
+              <p className="text-sm text-surface-700 text-center py-4">No experience added yet.</p>
+            )}
+            {form.experience.map((exp, expIndex) => (
+              <div key={expIndex} className="border border-white/10 rounded-xl p-4 space-y-3 bg-black/20">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-surface-500 uppercase tracking-wider">Position {expIndex + 1}</span>
+                  <button onClick={() => removeExperience(expIndex)} className="text-xs text-red-400/60 hover:text-red-400 transition-colors">Remove</button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Input label="Company" value={exp.company}
+                    onChange={(v) => updateExperience(expIndex, 'company', v)} placeholder="e.g. Google" />
+                  <Input label="Job Title" value={exp.title}
+                    onChange={(v) => updateExperience(expIndex, 'title', v)} placeholder="e.g. Senior Software Engineer" />
+                  <Input label="Start Date" value={exp.startDate}
+                    onChange={(v) => updateExperience(expIndex, 'startDate', v)} placeholder="e.g. Jan 2022" />
+                  <Input label="End Date" value={exp.endDate}
+                    onChange={(v) => updateExperience(expIndex, 'endDate', v)} placeholder='e.g. Mar 2024 or "Present"' />
+                </div>
+                <div>
+                  <label className="block text-xs text-surface-700 mb-1.5">
+                    Bullet Points <span className="text-surface-800">(used by LLM to tailor resume)</span>
+                  </label>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {exp.bullets.map((bullet, bulletIndex) => (
+                      <span key={bulletIndex} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-surface-800/50 text-surface-300 rounded-lg text-xs">
+                        {bullet}
+                        <button onClick={() => removeBullet(expIndex, bulletIndex)} className="text-surface-600 hover:text-surface-300 text-sm">×</button>
+                      </span>
+                    ))}
+                  </div>
+                  <input
+                    value={bulletInputs[expIndex] || ''}
+                    onChange={(e) => { const u = [...bulletInputs]; u[expIndex] = e.target.value; setBulletInputs(u) }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addBullet(expIndex) } }}
+                    placeholder='e.g. "Reduced API latency by 40%" — press Enter to add'
+                    className="w-full bg-[#0a0b0f] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-surface-50 placeholder-surface-800 focus:outline-none focus:border-brand-500 transition-colors"
+                  />
+                </div>
+              </div>
+            ))}
+            <button onClick={addExperience} className="w-full py-2.5 border border-dashed border-white/10 rounded-xl text-sm text-surface-700 hover:text-surface-400 hover:border-white/20 transition-colors">
+              + Add Position
+            </button>
+          </div>
+        </Section>
+
+        {/* Education */}
+        <Section title="Education">
+          <div className="space-y-4">
+            {form.education.length === 0 && (
+              <p className="text-sm text-surface-700 text-center py-4">No education added yet.</p>
+            )}
+            {form.education.map((edu, eduIndex) => (
+              <div key={eduIndex} className="border border-white/10 rounded-xl p-4 bg-black/20">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs font-semibold text-surface-500 uppercase tracking-wider">Degree {eduIndex + 1}</span>
+                  <button onClick={() => removeEducation(eduIndex)} className="text-xs text-red-400/60 hover:text-red-400 transition-colors">Remove</button>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <Input label="Institution" value={edu.institution}
+                    onChange={(v) => updateEducation(eduIndex, 'institution', v)} placeholder="e.g. IIT Hyderabad" />
+                  <Input label="Degree" value={edu.degree}
+                    onChange={(v) => updateEducation(eduIndex, 'degree', v)} placeholder="e.g. B.Tech" />
+                  <Input label="Field of Study" value={edu.field}
+                    onChange={(v) => updateEducation(eduIndex, 'field', v)} placeholder="e.g. Computer Science" />
+                </div>
+              </div>
+            ))}
+            <button onClick={addEducation} className="w-full py-2.5 border border-dashed border-white/10 rounded-xl text-sm text-surface-700 hover:text-surface-400 hover:border-white/20 transition-colors">
+              + Add Degree
+            </button>
           </div>
         </Section>
 
         {/* Skills */}
         <Section title="Skills">
           <TagInput
-            tags={form.skills}
-            inputValue={skillInput}
-            onInputChange={setSkillInput}
+            tags={form.skills} inputValue={skillInput} onInputChange={setSkillInput}
             onAdd={() => addToList('skills', skillInput, setSkillInput)}
             onRemove={(i) => removeFromList('skills', i)}
-            placeholder="Add a skill and press Enter..."
+            placeholder="Add a skill and press Enter... (e.g. TypeScript, React, Python)"
           />
         </Section>
 
         {/* Achievements */}
-        <Section title="Achievements (Specific Metrics)">
+        <Section title="Key Achievements">
+          <p className="text-xs text-surface-700 mb-3">Specific metrics used by the LLM to tailor your resume for each job.</p>
           <TagInput
-            tags={form.achievements}
-            inputValue={achievementInput}
-            onInputChange={setAchievementInput}
+            tags={form.achievements} inputValue={achievementInput} onInputChange={setAchievementInput}
             onAdd={() => addToList('achievements', achievementInput, setAchievementInput)}
             onRemove={(i) => removeFromList('achievements', i)}
-            placeholder='e.g. "Reduced latency by 40% across multi-region deployment"'
+            placeholder='e.g. "Reduced latency by 40% across multi-region deployment" — press Enter'
           />
         </Section>
 
-        {/* Preferences */}
+        {/* Job Search Preferences */}
         <Section title="Job Search Preferences">
           <div className="space-y-4">
             <div>
               <label className="block text-xs text-surface-700 mb-1.5">Target Roles</label>
               <TagInput
-                tags={form.targetRoles}
-                inputValue={roleInput}
-                onInputChange={setRoleInput}
+                tags={form.targetRoles} inputValue={roleInput} onInputChange={setRoleInput}
                 onAdd={() => addToList('targetRoles', roleInput, setRoleInput)}
                 onRemove={(i) => removeFromList('targetRoles', i)}
-                placeholder='e.g. "Senior Software Engineer"'
+                placeholder='e.g. "Senior Software Engineer" — press Enter'
               />
             </div>
             <div>
               <label className="block text-xs text-surface-700 mb-1.5">Target Locations</label>
               <TagInput
-                tags={form.targetLocations}
-                inputValue={locationInput}
-                onInputChange={setLocationInput}
+                tags={form.targetLocations} inputValue={locationInput} onInputChange={setLocationInput}
                 onAdd={() => addToList('targetLocations', locationInput, setLocationInput)}
                 onRemove={(i) => removeFromList('targetLocations', i)}
-                placeholder='e.g. "San Francisco" or "Remote"'
+                placeholder='e.g. "Hyderabad" or "Remote" — press Enter'
               />
             </div>
-            <div className="grid grid-cols-3 gap-4">
-              <Input label="Minimum Salary" type="number" value={String(form.minSalary)}
+            <div className="grid grid-cols-3 gap-4 items-end">
+              <Input label="Minimum Salary (USD/year)" type="number" value={String(form.minSalary)}
                 onChange={(v) => setForm({ ...form, minSalary: Number(v) })} />
               <Toggle label="Remote Only" value={form.remoteOnly}
                 onChange={(v) => setForm({ ...form, remoteOnly: v })} />
-              <Toggle label="Visa Required" value={form.visaRequired}
+              <Toggle label="Visa Sponsorship Required" value={form.visaRequired}
                 onChange={(v) => setForm({ ...form, visaRequired: v })} />
             </div>
           </div>
         </Section>
+
       </div>
     </div>
   )
 }
 
-// ─── Subcomponents ───────────────────────────────────────────────────────
+// ─── Sub-components ──────────────────────────────────────────────────────────
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -264,10 +379,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-function Input({
-  label, value, onChange, type = 'text', required, placeholder,
-}: {
-  label: string; value: string; onChange: (v: string) => void; type?: string; required?: boolean; placeholder?: string
+function Input({ label, value, onChange, type = 'text', required, placeholder }: {
+  label: string; value: string; onChange: (v: string) => void
+  type?: string; required?: boolean; placeholder?: string
 }) {
   return (
     <div>
@@ -275,10 +389,7 @@ function Input({
         {label} {required && <span className="text-red-400">*</span>}
       </label>
       <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
+        type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
         className="w-full bg-[#0a0b0f] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-surface-50 placeholder-surface-800 focus:outline-none focus:border-brand-500 transition-colors"
       />
     </div>
@@ -289,23 +400,14 @@ function Toggle({ label, value, onChange }: { label: string; value: boolean; onC
   return (
     <div className="flex items-center gap-3">
       <label className="text-xs text-surface-700">{label}</label>
-      <button
-        onClick={() => onChange(!value)}
-        className={`relative w-10 h-5 rounded-full transition-colors ${
-          value ? 'bg-brand-600' : 'bg-surface-800'
-        }`}
-      >
-        <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-          value ? 'translate-x-5' : 'translate-x-0.5'
-        }`} />
+      <button onClick={() => onChange(!value)} className={`relative w-10 h-5 rounded-full transition-colors ${value ? 'bg-brand-600' : 'bg-surface-800'}`}>
+        <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${value ? 'translate-x-5' : 'translate-x-0.5'}`} />
       </button>
     </div>
   )
 }
 
-function TagInput({
-  tags, inputValue, onInputChange, onAdd, onRemove, placeholder,
-}: {
+function TagInput({ tags, inputValue, onInputChange, onAdd, onRemove, placeholder }: {
   tags: string[]; inputValue: string; onInputChange: (v: string) => void
   onAdd: () => void; onRemove: (i: number) => void; placeholder: string
 }) {
@@ -320,8 +422,7 @@ function TagInput({
         ))}
       </div>
       <input
-        value={inputValue}
-        onChange={(e) => onInputChange(e.target.value)}
+        value={inputValue} onChange={(e) => onInputChange(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onAdd() } }}
         placeholder={placeholder}
         className="w-full bg-[#0a0b0f] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-surface-50 placeholder-surface-800 focus:outline-none focus:border-brand-500 transition-colors"
