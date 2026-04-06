@@ -99,7 +99,10 @@ export default {
       return new Response(response.body, { status: response.status, headers })
     } catch (err) {
       console.error('API error:', err)
-      return json({ error: 'Internal server error' }, 500)
+      const errRes = json({ error: 'Internal server error' }, 500)
+      const headers = new Headers(errRes.headers)
+      Object.entries(corsHeaders).forEach(([k, v]) => headers.set(k, v))
+      return new Response(errRes.body, { status: 500, headers })
     }
   },
 
@@ -291,7 +294,7 @@ async function handleParseResume(env: Env, request: Request): Promise<Response> 
     const parsed = JSON.parse(raw)
     return json(parsed)
   } catch {
-    return json({ error: 'Failed to parse resume structure' }, 500)
+    return json({ error: 'Failed to parse resume structure. If this persists, the AI quota may be exhausted for today.' }, 500)
   }
 }
 
