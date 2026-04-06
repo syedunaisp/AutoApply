@@ -1,4 +1,6 @@
 fastapi
-uvicorn
-jobspy
+uvicorn[standard]
+python-jobspy
 pandas
+httpx
+apscheduler
