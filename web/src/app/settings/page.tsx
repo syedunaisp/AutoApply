@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { getProfile, updateProfile } from '@/lib/api-client'
+import { useEffect, useRef, useState } from 'react'
+import { getProfile, updateProfile, parseResume } from '@/lib/api-client'
 
 const USER_ID = process.env.NEXT_PUBLIC_USER_ID || 'test-user-1'
 
@@ -58,8 +58,64 @@ export default function SettingsPage() {
   const [locationInput, setLocationInput] = useState('')
   const [achievementInput, setAchievementInput] = useState('')
   const [bulletInputs, setBulletInputs] = useState<string[]>([])
+  const [parsing, setParsing] = useState(false)
+  const [parseError, setParseError] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { loadProfile() }, [])
+
+  async function handleResumeUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || file.type !== 'application/pdf') return
+    try {
+      setParsing(true)
+      setParseError('')
+
+      // Extract text from PDF client-side using PDF.js
+      const pdfjsLib = await import('pdfjs-dist')
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
+
+      const arrayBuffer = await file.arrayBuffer()
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+      let text = ''
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i)
+        const content = await page.getTextContent()
+        text += (content.items as any[]).map((item) => item.str).join(' ') + '\n'
+      }
+
+      // Send extracted text to worker LLM parser
+      const parsed = await parseResume(text)
+      if (parsed.error) { setParseError(parsed.error); return }
+
+      // Pre-fill form with parsed data
+      const exp = Array.isArray(parsed.experience) ? parsed.experience : []
+      setForm((prev) => ({
+        ...prev,
+        phone:           parsed.phone        || prev.phone,
+        location:        parsed.location      || prev.location,
+        linkedinUrl:     parsed.linkedinUrl   || prev.linkedinUrl,
+        githubUrl:       parsed.githubUrl     || prev.githubUrl,
+        personalEmail:   parsed.email         || prev.personalEmail,
+        currentTitle:    parsed.currentTitle  || prev.currentTitle,
+        yearsExperience: parsed.yearsExperience ?? prev.yearsExperience,
+        summary:         parsed.summary       || prev.summary,
+        skills:          parsed.skills?.length        ? parsed.skills        : prev.skills,
+        experience:      exp.length                   ? exp                  : prev.experience,
+        education:       parsed.education?.length     ? parsed.education     : prev.education,
+        achievements:    parsed.achievements?.length  ? parsed.achievements  : prev.achievements,
+      }))
+      setBulletInputs(exp.map(() => ''))
+
+      // Reset file input
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    } catch (err) {
+      setParseError('Failed to read PDF. Make sure it is a text-based (not scanned) PDF.')
+    } finally {
+      setParsing(false)
+    }
+  }
 
   async function loadProfile() {
     try {
@@ -190,6 +246,41 @@ export default function SettingsPage() {
         >
           {saving ? 'Saving...' : saved ? '✓ Saved' : 'Save Changes'}
         </button>
+      </div>
+
+      {/* Resume Upload */}
+      <div className="glass-card p-5 mb-6 flex items-center justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium text-surface-50">Auto-fill from Resume</p>
+          <p className="text-xs text-surface-700 mt-0.5">
+            Upload your PDF resume and the AI will extract your profile. You can edit anything after.
+          </p>
+          {parseError && <p className="text-xs text-red-400 mt-1">{parseError}</p>}
+        </div>
+        <div className="flex-shrink-0">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/pdf"
+            onChange={handleResumeUpload}
+            className="hidden"
+            id="resume-upload"
+          />
+          <label
+            htmlFor="resume-upload"
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium cursor-pointer transition-all ${
+              parsing
+                ? 'bg-brand-600/30 text-brand-400 cursor-not-allowed'
+                : 'bg-brand-600/20 text-brand-400 border border-brand-500/30 hover:bg-brand-600/30'
+            }`}
+          >
+            {parsing ? (
+              <><span className="animate-spin">⟳</span> Parsing...</>
+            ) : (
+              <>📄 Upload PDF</>
+            )}
+          </label>
+        </div>
       </div>
 
       <div className="space-y-6">

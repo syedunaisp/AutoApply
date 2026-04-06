@@ -107,6 +107,15 @@ export async function updateProfile(data: any) {
   })
 }
 
+// ─── Resume Parser ───────────────────────────────────────────────────────
+
+export async function parseResume(text: string) {
+  return apiFetch<any>('/api/parse-resume', {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  })
+}
+
 // ─── Stats ───────────────────────────────────────────────────────────────
 
 export interface DashboardStats {

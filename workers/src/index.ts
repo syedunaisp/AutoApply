@@ -68,6 +68,9 @@ export default {
       else if (path === '/api/stats' && request.method === 'GET') {
         response = await handleGetStats(env, url)
       }
+      else if (path === '/api/parse-resume' && request.method === 'POST') {
+        response = await handleParseResume(env, request)
+      }
       // Scraper push endpoint — called by VPS cron after scraping
       else if (path === '/ingest-jobs' && request.method === 'POST') {
         const ingestKey = request.headers.get('x-ingest-key')
@@ -270,6 +273,26 @@ async function handleGetProfile(env: Env, url: URL): Promise<Response> {
   ).bind(userId).first()
 
   return json({ user, profile })
+}
+
+async function handleParseResume(env: Env, request: Request): Promise<Response> {
+  const body = await request.json() as { text: string }
+  if (!body.text?.trim()) return json({ error: 'text required' }, 400)
+
+  const raw = await callLLM(
+    env,
+    'You are a resume parser. Extract structured profile data from the resume text. Return only valid JSON with no markdown.',
+    `Parse this resume and extract all available fields:\n\n${body.text.substring(0, 6000)}\n\nReturn JSON:\n{\n  "firstName": string,\n  "lastName": string,\n  "email": string,\n  "phone": string,\n  "location": string,\n  "linkedinUrl": string,\n  "githubUrl": string,\n  "currentTitle": string,\n  "yearsExperience": number,\n  "summary": string,\n  "skills": string[],\n  "experience": Array<{ "company": string, "title": string, "startDate": string, "endDate": string, "bullets": string[] }>,\n  "education": Array<{ "institution": string, "degree": string, "field": string }>,\n  "achievements": string[]\n}`,
+    'medium',
+    true
+  )
+
+  try {
+    const parsed = JSON.parse(raw)
+    return json(parsed)
+  } catch {
+    return json({ error: 'Failed to parse resume structure' }, 500)
+  }
 }
 
 async function handleUpdateProfile(env: Env, request: Request): Promise<Response> {
