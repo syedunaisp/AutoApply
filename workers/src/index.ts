@@ -282,19 +282,24 @@ async function handleParseResume(env: Env, request: Request): Promise<Response> 
   const body = await request.json() as { text: string }
   if (!body.text?.trim()) return json({ error: 'text required' }, 400)
 
-  const raw = await callLLM(
-    env,
-    'You are a resume parser. Extract structured profile data from the resume text. Return only valid JSON with no markdown.',
-    `Parse this resume and extract all available fields:\n\n${body.text.substring(0, 6000)}\n\nReturn JSON:\n{\n  "firstName": string,\n  "lastName": string,\n  "email": string,\n  "phone": string,\n  "location": string,\n  "linkedinUrl": string,\n  "githubUrl": string,\n  "currentTitle": string,\n  "yearsExperience": number,\n  "summary": string,\n  "skills": string[],\n  "experience": Array<{ "company": string, "title": string, "startDate": string, "endDate": string, "bullets": string[] }>,\n  "education": Array<{ "institution": string, "degree": string, "field": string }>,\n  "achievements": string[]\n}`,
-    'medium',
-    true
-  )
-
   try {
+    const raw = await callLLM(
+      env,
+      'You are a resume parser. Extract structured profile data from the resume text. Return only valid JSON with no markdown.',
+      `Parse this resume and extract all available fields:\n\n${body.text.substring(0, 6000)}\n\nReturn JSON:\n{\n  "firstName": string,\n  "lastName": string,\n  "email": string,\n  "phone": string,\n  "location": string,\n  "linkedinUrl": string,\n  "githubUrl": string,\n  "currentTitle": string,\n  "yearsExperience": number,\n  "summary": string,\n  "skills": string[],\n  "experience": Array<{ "company": string, "title": string, "startDate": string, "endDate": string, "bullets": string[] }>,\n  "education": Array<{ "institution": string, "degree": string, "field": string }>,\n  "achievements": string[]\n}`,
+      'medium',
+      true
+    )
     const parsed = JSON.parse(raw)
     return json(parsed)
-  } catch {
-    return json({ error: 'Failed to parse resume structure. If this persists, the AI quota may be exhausted for today.' }, 500)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    const isQuota = msg.includes('neurons') || msg.includes('quota') || msg.includes('allocation')
+    return json({
+      error: isQuota
+        ? 'Workers AI daily quota exhausted. Upgrade to Cloudflare Workers Paid plan ($5/mo) to use this feature.'
+        : `Resume parsing failed: ${msg}`,
+    }, 500)
   }
 }
 

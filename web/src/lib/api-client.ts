@@ -12,7 +12,14 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   })
 
   if (!res.ok) {
-    throw new Error(`API error: ${res.status} ${res.statusText}`)
+    // Try to extract error message from JSON body before throwing
+    try {
+      const body = await res.json() as { error?: string }
+      throw new Error(body.error || `API error: ${res.status}`)
+    } catch (e) {
+      if (e instanceof Error && e.message !== `API error: ${res.status}`) throw e
+      throw new Error(`API error: ${res.status} ${res.statusText}`)
+    }
   }
 
   return res.json()
