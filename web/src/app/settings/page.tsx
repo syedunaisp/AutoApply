@@ -71,17 +71,21 @@ export default function SettingsPage() {
       setParsing(true)
       setParseError('')
 
-      // Extract text from PDF client-side using PDF.js
-      const pdfjsLib = await import('pdfjs-dist')
-      pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
+      // Extract text from PDF client-side using PDF.js v3
+      const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf' as any)
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
 
       const arrayBuffer = await file.arrayBuffer()
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+      const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise
       let text = ''
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i)
         const content = await page.getTextContent()
-        text += (content.items as any[]).map((item) => item.str).join(' ') + '\n'
+        text += (content.items as any[])
+          .filter((item: any) => typeof item.str === 'string')
+          .map((item: any) => item.str)
+          .join(' ') + '\n'
       }
 
       // Send extracted text to worker LLM parser
@@ -110,7 +114,9 @@ export default function SettingsPage() {
       // Reset file input
       if (fileInputRef.current) fileInputRef.current.value = ''
     } catch (err) {
-      setParseError('Failed to read PDF. Make sure it is a text-based (not scanned) PDF.')
+      const msg = err instanceof Error ? err.message : String(err)
+      setParseError(`Error: ${msg}`)
+      console.error('PDF parse error:', err)
     } finally {
       setParsing(false)
     }
