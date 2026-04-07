@@ -3,7 +3,8 @@ main = "src/index.ts"
 compatibility_date = "2024-01-01"
 
 [triggers]
-crons = ["0 8 * * *"]
+crons = []
+# crons = ["0 8 * * *"]  # disabled — re-enable when upgrading to Workers Paid plan
 
 [[d1_databases]]
 binding = "DB"
