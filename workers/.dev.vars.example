@@ -1,0 +1,36 @@
+# ── Cloudflare Worker Secrets ───────────────────────────────────────────────
+# For LOCAL development only — copy to workers/.dev.vars
+# For PRODUCTION — set via: wrangler secret put SECRET_NAME
+#
+# NEVER commit .dev.vars to git (already in .gitignore)
+
+# Resend API key — https://resend.com/api-keys
+RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Verified sending domain on Resend (must have DKIM + SPF configured)
+# Emails will be sent from: firstname.lastname@SENDING_DOMAIN
+SENDING_DOMAIN=mail.yourdomain.com
+
+# Apollo.io API key for hiring manager contact lookup
+# https://app.apollo.io/settings/integrations/api
+APOLLO_API_KEY=your-apollo-api-key
+
+# ZeroBounce API key for email validation
+# https://www.zerobounce.net/members/apikey/
+ZERO_BOUNCE_API_KEY=your-zerobounce-api-key
+
+# Public URL for the R2 bucket (configure custom domain in R2 settings)
+R2_PUBLIC_URL=https://resumes.yourdomain.com
+
+# Email address for zero-result scrape alerts
+ADMIN_ALERT_EMAIL=you@yourdomain.com
+
+# URL of the deployed Python scraper (Render or other VPS)
+SCRAPER_URL=https://your-scraper.onrender.com
+
+# Shared secret for the /ingest-jobs endpoint
+# Must match API_KEY in scraper .env — generate with: openssl rand -hex 32
+WORKER_INGEST_KEY=your-ingest-key-here
+
+# Ingest key specifically for the worker side (same value as WORKER_INGEST_KEY)
+SCRAPER_API_KEY=your-scraper-api-key-here

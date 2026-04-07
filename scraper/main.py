@@ -7,9 +7,19 @@ import httpx
 
 app = FastAPI(title="AutoApply Scraper", version="1.0.0")
 
-API_KEY = os.environ.get("API_KEY", "dev-key-change-me")
+if not os.environ.get("API_KEY"):
+    print("WARNING: API_KEY env var is not set. All requests will be rejected.")
+
+
+API_KEY = os.environ.get("API_KEY", "")
 WORKER_URL = os.environ.get("WORKER_URL", "")
 WORKER_INGEST_KEY = os.environ.get("WORKER_INGEST_KEY", "")
+
+# Configurable search terms — comma-separated, e.g. "ML Engineer,MLOps,Data Scientist"
+_raw_terms    = os.environ.get("SEARCH_TERMS", "Senior Software Engineer,Staff Engineer")
+_raw_location = os.environ.get("SEARCH_LOCATION", "United States")
+SEARCH_TERMS    = [t.strip() for t in _raw_terms.split(",") if t.strip()]
+SEARCH_LOCATION = _raw_location.strip()
 
 # ----------------------------
 # DAILY SCHEDULER
@@ -108,10 +118,7 @@ async def run_and_push(
 
 async def _scrape_and_push():
     """Background task: scrape each search term and POST results to worker."""
-    searches = [
-        ("Senior Software Engineer", "United States"),
-        ("Staff Engineer", "United States"),
-    ]
+    searches = [(term, SEARCH_LOCATION) for term in SEARCH_TERMS]
 
     for keywords, location in searches:
         try:

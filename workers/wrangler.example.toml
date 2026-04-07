@@ -1,0 +1,50 @@
+name = "autoapply-worker"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+# Uncomment and set to run daily pipeline automatically
+# Requires Workers Paid plan ($5/month)
+[triggers]
+crons = []
+# crons = ["0 8 * * *"]  # 08:00 UTC daily
+
+[[d1_databases]]
+binding = "DB"
+database_name = "autoapply"
+database_id = "REPLACE_WITH_YOUR_D1_ID"  # wrangler d1 create autoapply
+migrations_dir = "../packages/db/migrations"
+
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "job-embeddings"  # wrangler vectorize create job-embeddings --dimensions=768 --metric=cosine
+
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "autoapply-resumes"  # wrangler r2 bucket create autoapply-resumes
+
+[ai]
+binding = "AI"
+
+[[queues.producers]]
+binding = "JOB_QUEUE"
+queue = "job-processing-queue"  # wrangler queues create job-processing-queue
+
+[[queues.producers]]
+binding = "MATCH_QUEUE"
+queue = "match-queue"  # wrangler queues create match-queue
+
+[[queues.consumers]]
+queue = "job-processing-queue"
+max_batch_size = 5
+max_batch_timeout = 30
+max_retries = 3
+
+[[queues.consumers]]
+queue = "match-queue"
+max_batch_size = 1
+max_batch_timeout = 60
+max_retries = 3
+
+# Secrets — set via `wrangler secret put SECRET_NAME`:
+# RESEND_API_KEY, SENDING_DOMAIN, APOLLO_API_KEY, ZERO_BOUNCE_API_KEY,
+# R2_PUBLIC_URL, ADMIN_ALERT_EMAIL, SCRAPER_URL, WORKER_INGEST_KEY, SCRAPER_API_KEY
