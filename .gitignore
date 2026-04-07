@@ -40,6 +40,10 @@ venv/
 .claude/settings.local.json
 .claude/projects/
 
+# Personal files — never commit
+*.pdf
+Syed_Unais_Resume.pdf
+
 # Misc
 *.log
 npm-debug.log*
