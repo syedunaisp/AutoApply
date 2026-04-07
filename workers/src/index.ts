@@ -296,7 +296,8 @@ async function handleParseResume(env: Env, request: Request): Promise<Response> 
     }
 
     const parsed = JSON.parse(raw)
-    return json(parsed)
+    // Llama json_schema wraps result in { output: {...} } — unwrap it
+    return json(parsed.output ?? parsed)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     const isQuota = msg.includes('neurons') || msg.includes('quota') || msg.includes('allocation')

@@ -1,5 +1,5 @@
-// Workers AI LLM wrapper for @cf/openai/gpt-oss-120b
-// Supports reasoning.effort levels: low (classification), medium (emails), high (resume rewriting)
+// Workers AI LLM wrapper
+// Model: @cf/meta/llama-3.1-8b-instruct (8B params — ~10x cheaper than 120B, free tier friendly)
 // Always uses json_object mode for structured output — never parse free-text with regex
 
 import type { Env, TriagedJobFields, UserProfile } from '@autoapply/types'
@@ -8,7 +8,7 @@ export type ReasoningEffort = 'low' | 'medium' | 'high'
 
 /**
  * Core LLM call wrapper.
- * Uses @cf/openai/gpt-oss-120b via Cloudflare Workers AI binding.
+ * Uses @cf/meta/llama-3.1-8b-instruct via Cloudflare Workers AI binding.
  */
 export async function callLLM(
   env: Env,
@@ -26,19 +26,21 @@ export async function callLLM(
 
   const options: any = {
     messages,
-    thinking: {
-      type: 'enabled',
-      budget_tokens: effort === 'high' ? 4096 : effort === 'medium' ? 2048 : 1024
-    },
-    max_tokens: 2048,
+    max_tokens: effort === 'high' ? 2048 : effort === 'medium' ? 1024 : 512,
   }
 
   if (jsonMode) {
-    options.response_format = { type: 'json_object' }
+    options.response_format = {
+      type: 'json_schema',
+      json_schema: { name: 'output', schema: { type: 'object' } },
+    }
   }
 
-  const result = await env.AI.run('@cf/openai/gpt-oss-120b', options)
-  return result.response || result.result?.response || ''
+  const result = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', options)
+  const resp = (result as any).response
+  if (typeof resp === 'string') return resp
+  if (resp !== null && typeof resp === 'object') return JSON.stringify(resp)
+  return ''
 }
 
 /**
