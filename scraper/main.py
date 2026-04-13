@@ -3,6 +3,7 @@ from jobspy import scrape_jobs
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
 import os
+import re
 import httpx
 
 app = FastAPI(title="AutoApply Scraper", version="1.0.0")
@@ -51,6 +52,99 @@ def normalize_job(j: dict) -> dict:
         "salary_max":   j.get("max_amount", None),
         "remote":       str(j.get("job_type", "")),
     }
+
+# Companies to scan on Greenhouse and Ashby — extend this list as needed
+# Format: (platform, board_token)
+ATS_BOARDS_RAW = os.environ.get("ATS_BOARDS", "")
+DEFAULT_ATS_BOARDS = [
+    ("greenhouse", "databricks"), ("greenhouse", "stripe"),  ("greenhouse", "lyft"),
+    ("greenhouse", "brex"),       ("greenhouse", "figma"),   ("greenhouse", "coinbase"),
+    ("ashby",      "linear"),     ("ashby",      "ramp"),    ("ashby",      "cohere"),
+    ("ashby",      "modal"),      ("ashby",      "anyscale"),
+]
+
+def _parse_ats_boards(raw: str):
+    """Parse 'greenhouse:stripe,ashby:linear' into [(platform, token), ...]"""
+    boards = []
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if ":" in entry:
+            platform, token = entry.split(":", 1)
+            boards.append((platform.strip(), token.strip()))
+    return boards
+
+ATS_BOARDS = _parse_ats_boards(ATS_BOARDS_RAW) if ATS_BOARDS_RAW else DEFAULT_ATS_BOARDS
+
+
+async def scrape_ats_boards(keywords: str) -> list[dict]:
+    """
+    Query Greenhouse and Ashby public job board APIs directly.
+    These return real ATS URLs (boards.greenhouse.io/... or jobs.ashbyhq.com/...)
+    which detectATS() can use for actual submission routing.
+
+    keywords: comma-separated terms to match against job titles (case-insensitive)
+    """
+    terms = [t.strip().lower() for t in keywords.split(",") if t.strip()]
+    results = []
+
+    async with httpx.AsyncClient(timeout=12) as client:
+        for platform, token in ATS_BOARDS:
+            try:
+                if platform == "greenhouse":
+                    url = f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs"
+                    r = await client.get(url)
+                    if not r.is_success:
+                        continue
+                    jobs = r.json().get("jobs", [])
+                    for j in jobs:
+                        title = j.get("title", "")
+                        if not any(t in title.lower() for t in terms):
+                            continue
+                        job_id = str(j.get("id", ""))
+                        results.append({
+                            "external_id": f"gh-{token}-{job_id}",
+                            "title": title,
+                            "company": token.capitalize(),
+                            "location": j.get("location", {}).get("name", ""),
+                            "description": "",   # fetched lazily in worker Stage 2
+                            "apply_url": f"https://boards.greenhouse.io/{token}/jobs/{job_id}",
+                            "source": "greenhouse_direct",
+                            "date_posted": "",
+                            "salary_min": None,
+                            "salary_max": None,
+                            "remote": "",
+                        })
+
+                elif platform == "ashby":
+                    url = f"https://api.ashbyhq.com/posting-api/job-board/{token}"
+                    r = await client.get(url)
+                    if not r.is_success:
+                        continue
+                    jobs = r.json().get("jobPostings", r.json() if isinstance(r.json(), list) else [])
+                    for j in jobs:
+                        title = j.get("title", "")
+                        if not any(t in title.lower() for t in terms):
+                            continue
+                        job_id = str(j.get("id", ""))
+                        results.append({
+                            "external_id": f"ashby-{token}-{job_id}",
+                            "title": title,
+                            "company": token.capitalize(),
+                            "location": j.get("location", ""),
+                            "description": "",
+                            "apply_url": f"https://jobs.ashbyhq.com/{token}/{job_id}",
+                            "source": "ashby_direct",
+                            "date_posted": "",
+                            "salary_min": None,
+                            "salary_max": None,
+                            "remote": "",
+                        })
+            except Exception as e:
+                print(f"[ats_scraper] {platform}/{token}: {e}")
+
+    print(f"[ats_scraper] '{keywords}': found {len(results)} matching jobs across {len(ATS_BOARDS)} boards")
+    return results
+
 
 # ----------------------------
 # DAILY SCHEDULER
@@ -115,6 +209,23 @@ def get_jobs(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/jobs/ats")
+async def get_ats_jobs(
+    keywords: str,
+    x_api_key: str = Header(None),
+):
+    """
+    Scrape jobs directly from Greenhouse and Ashby public boards.
+    Returns jobs with real ATS URLs — no LinkedIn/Indeed wrappers.
+    keywords: comma-separated terms, e.g. "ML Engineer,MLOps,Data Scientist"
+    """
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    jobs = await scrape_ats_boards(keywords)
+    return {"jobs": jobs, "count": len(jobs), "status": "success" if jobs else "zero_results"}
+
+
 @app.post("/run")
 async def run_and_push(
     background_tasks: BackgroundTasks,
@@ -136,7 +247,28 @@ async def run_and_push(
 
 
 async def _scrape_and_push():
-    """Background task: scrape each search term and POST results to worker."""
+    """
+    Background task: scrape jobs from two sources and push to worker.
+    Source 1: jobspy (LinkedIn/Indeed/Glassdoor) — broad discovery
+    Source 2: ATS boards directly (Greenhouse/Ashby) — guaranteed real ATS URLs
+    """
+    # Source 2 first: query ATS boards directly for all search terms combined
+    # This gives us real boards.greenhouse.io / jobs.ashbyhq.com URLs
+    combined_keywords = ",".join(SEARCH_TERMS)
+    try:
+        ats_jobs = await scrape_ats_boards(combined_keywords)
+        if ats_jobs:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    f"{WORKER_URL}/ingest-jobs",
+                    headers={"x-ingest-key": WORKER_INGEST_KEY},
+                    json={"keywords": combined_keywords, "location": "Remote", "jobs": ats_jobs},
+                )
+            print(f"[scraper] ATS boards: pushed {len(ats_jobs)} jobs → worker responded {resp.status_code}")
+    except Exception as e:
+        print(f"[scraper] ATS boards push failed: {e}")
+
+    # Source 1: jobspy for broad discovery (captures new postings not on known boards)
     searches = [(term, SEARCH_LOCATION) for term in SEARCH_TERMS]
 
     for keywords, location in searches:
