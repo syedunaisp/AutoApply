@@ -11,8 +11,8 @@ if not os.environ.get("API_KEY"):
     print("WARNING: API_KEY env var is not set. All requests will be rejected.")
 
 
-API_KEY = os.environ.get("API_KEY", "")
-WORKER_URL = os.environ.get("WORKER_URL", "")
+API_KEY           = os.environ.get("API_KEY", "")
+WORKER_URL        = os.environ.get("WORKER_URL", "")
 WORKER_INGEST_KEY = os.environ.get("WORKER_INGEST_KEY", "")
 
 # Configurable search terms — comma-separated, e.g. "ML Engineer,MLOps,Data Scientist"
@@ -20,6 +20,37 @@ _raw_terms    = os.environ.get("SEARCH_TERMS", "Senior Software Engineer,Staff E
 _raw_location = os.environ.get("SEARCH_LOCATION", "United States")
 SEARCH_TERMS    = [t.strip() for t in _raw_terms.split(",") if t.strip()]
 SEARCH_LOCATION = _raw_location.strip()
+
+# Indeed country code — derived from SEARCH_LOCATION or override with COUNTRY_INDEED
+COUNTRY_INDEED = os.environ.get("COUNTRY_INDEED", "India" if "india" in SEARCH_LOCATION.lower() else "USA")
+
+
+def normalize_job(j: dict) -> dict:
+    """
+    Normalize a raw jobspy record into AutoApply's standard job shape.
+
+    Key: prefer job_url_direct over job_url so we get real ATS board URLs
+    (e.g. boards.greenhouse.io/stripe/jobs/123) rather than LinkedIn wrappers.
+    This is what allows detectATS() in the worker to identify Greenhouse/Lever/Ashby
+    and route to the correct executor.
+    """
+    direct = str(j.get("job_url_direct", "") or "").strip()
+    listing = str(j.get("job_url", "") or "").strip()
+    apply_url = direct if direct else listing
+
+    return {
+        "external_id":  str(j.get("id", "")),
+        "title":        str(j.get("title", "")),
+        "company":      str(j.get("company", "")),
+        "location":     str(j.get("location", "")),
+        "description":  str(j.get("description", "")),
+        "apply_url":    apply_url,
+        "source":       str(j.get("site", "")),
+        "date_posted":  str(j.get("date_posted", "")),
+        "salary_min":   j.get("min_amount", None),
+        "salary_max":   j.get("max_amount", None),
+        "remote":       str(j.get("job_type", "")),
+    }
 
 # ----------------------------
 # DAILY SCHEDULER
@@ -63,32 +94,20 @@ def get_jobs(
             location=location,
             results_wanted=results_wanted,
             hours_old=hours_old,
-            country_indeed="USA",
+            country_indeed=COUNTRY_INDEED,
         )
 
         if jobs_df is None or len(jobs_df) == 0:
             return {"jobs": [], "count": 0, "status": "zero_results"}
 
         jobs_df = jobs_df.fillna("")
-        records = jobs_df.to_dict(orient="records")
+        normalised = [normalize_job(j) for j in jobs_df.to_dict(orient="records")]
 
-        normalised = []
-        for j in records:
-            normalised.append(
-                {
-                    "external_id": str(j.get("id", "")),
-                    "title": str(j.get("title", "")),
-                    "company": str(j.get("company", "")),
-                    "location": str(j.get("location", "")),
-                    "description": str(j.get("description", "")),
-                    "apply_url": str(j.get("job_url", "")),
-                    "source": str(j.get("site", "")),
-                    "date_posted": str(j.get("date_posted", "")),
-                    "salary_min": j.get("min_amount", None),
-                    "salary_max": j.get("max_amount", None),
-                    "remote": str(j.get("job_type", "")),
-                }
-            )
+        # Log how many have real ATS URLs vs LinkedIn wrappers (for monitoring)
+        ats_urls = sum(1 for j in normalised if any(
+            k in j["apply_url"] for k in ["greenhouse.io", "lever.co", "ashbyhq.com", "ashby.com"]
+        ))
+        print(f"[scraper] {len(normalised)} jobs | {ats_urls} with direct ATS URLs | {len(normalised)-ats_urls} LinkedIn/other")
 
         return {"jobs": normalised, "count": len(normalised), "status": "success"}
 
@@ -128,30 +147,20 @@ async def _scrape_and_push():
                 location=location,
                 results_wanted=100,
                 hours_old=24,
-                country_indeed="USA",
+                country_indeed=COUNTRY_INDEED,
             )
 
             if jobs_df is None or len(jobs_df) == 0:
+                print(f"[scraper] Zero results for '{keywords}' in '{location}'")
                 continue
 
             jobs_df = jobs_df.fillna("")
-            records = jobs_df.to_dict(orient="records")
+            normalised = [normalize_job(j) for j in jobs_df.to_dict(orient="records")]
 
-            normalised = []
-            for j in records:
-                normalised.append({
-                    "external_id": str(j.get("id", "")),
-                    "title": str(j.get("title", "")),
-                    "company": str(j.get("company", "")),
-                    "location": str(j.get("location", "")),
-                    "description": str(j.get("description", "")),
-                    "apply_url": str(j.get("job_url", "")),
-                    "source": str(j.get("site", "")),
-                    "date_posted": str(j.get("date_posted", "")),
-                    "salary_min": j.get("min_amount", None),
-                    "salary_max": j.get("max_amount", None),
-                    "remote": str(j.get("job_type", "")),
-                })
+            ats_urls = sum(1 for j in normalised if any(
+                k in j["apply_url"] for k in ["greenhouse.io", "lever.co", "ashbyhq.com", "ashby.com"]
+            ))
+            print(f"[scraper] '{keywords}': {len(normalised)} jobs | {ats_urls} direct ATS URLs")
 
             # Push to worker ingest endpoint
             async with httpx.AsyncClient(timeout=30) as client:
