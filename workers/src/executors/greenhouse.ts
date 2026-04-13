@@ -7,10 +7,14 @@
 import type { Env, UserProfile, ApplicationResult, GreenhouseQuestion } from '@autoapply/types'
 import { callLLM } from '../core/llm'
 
-const BASE       = 'https://boards-api.greenhouse.io/v1/boards'
-// Greenhouse migrated the job board UI to job-boards.greenhouse.io
-// This is where the React SPA renders the actual application form
-const BOARD_BASE = 'https://job-boards.greenhouse.io'
+const BASE = 'https://boards-api.greenhouse.io/v1/boards'
+
+// Greenhouse embed application form — works universally for ALL companies.
+// Standard board URL (job-boards.greenhouse.io/{token}/jobs/{id}) redirects
+// to the company's own domain for large companies (Stripe, Brex, etc.).
+// The embed URL bypasses that redirect and loads the form directly.
+// Format: job-boards.greenhouse.io/embed/job_app?for={boardToken}&token={jobId}
+const EMBED_FORM_BASE = 'https://job-boards.greenhouse.io/embed/job_app'
 
 /**
  * Apply to a Greenhouse job. Always two steps + one of two submission paths:
@@ -99,7 +103,10 @@ async function applyGreenhouseViaBrowser(
   answers: Array<{ questionId: number; answer: string | number }>
 ): Promise<ApplicationResult> {
 
-  const jobUrl = `${BOARD_BASE}/${boardToken}/jobs/${jobId}`
+  // Use the embed form URL — works for ALL companies including those with
+  // custom career domains (Stripe, Brex, Coinbase, etc.) that redirect
+  // from the standard board URL to their own domain.
+  const jobUrl = `${EMBED_FORM_BASE}?for=${boardToken}&token=${jobId}`
 
   // The Playwright script runs inside Browserless's Chromium instance.
   // We pass profile data via the `context` object so no strings need escaping.
@@ -116,7 +123,7 @@ async function applyGreenhouseViaBrowser(
       try {
         await page.waitForSelector('#first_name', { timeout: 10000 });
       } catch (e) {
-        return { success: false, error: 'Form not rendered — company uses custom career page: ' + page.url() };
+        return { success: false, error: 'Greenhouse embed form did not render. URL: ' + page.url() };
       }
 
       // Helper: set value on a React-controlled input and trigger synthetic events
