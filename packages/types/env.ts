@@ -26,4 +26,7 @@ export interface Env {
   SENDING_DOMAIN: string
   R2_PUBLIC_URL: string
   ADMIN_ALERT_EMAIL: string
+  // Browserless.io — managed Playwright service for ATS form submission
+  // Sign up at browserless.io (free tier: 60 hrs/month)
+  BROWSERLESS_API_TOKEN?: string
 }

@@ -55,3 +55,5 @@ max_retries = 3
 # R2_PUBLIC_URL       — Public URL for R2 bucket
 # ADMIN_ALERT_EMAIL   — where zero-result alerts go
 # SCRAPER_URL         — VPS endpoint for Python scraper
+# BROWSERLESS_API_TOKEN — browserless.io token for ATS form submission (free: 60 hrs/mo)
+#                         Sign up at https://browserless.io, no credit card required
