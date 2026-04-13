@@ -91,7 +91,8 @@ async def scrape_ats_boards(keywords: str) -> list[dict]:
         for platform, token in ATS_BOARDS:
             try:
                 if platform == "greenhouse":
-                    url = f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs"
+                    # content=true includes job description in the listing response
+                    url = f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true"
                     r = await client.get(url)
                     if not r.is_success:
                         continue
@@ -101,15 +102,18 @@ async def scrape_ats_boards(keywords: str) -> list[dict]:
                         if not any(t in title.lower() for t in terms):
                             continue
                         job_id = str(j.get("id", ""))
+                        # Strip HTML tags from content for clean plain-text description
+                        raw_content = j.get("content", "")
+                        description = re.sub(r'<[^>]+>', ' ', raw_content).strip()
                         results.append({
                             "external_id": f"gh-{token}-{job_id}",
                             "title": title,
                             "company": token.capitalize(),
                             "location": j.get("location", {}).get("name", ""),
-                            "description": "",   # fetched lazily in worker Stage 2
+                            "description": description,
                             "apply_url": f"https://boards.greenhouse.io/{token}/jobs/{job_id}",
                             "source": "greenhouse_direct",
-                            "date_posted": "",
+                            "date_posted": j.get("updated_at", ""),
                             "salary_min": None,
                             "salary_max": None,
                             "remote": "",
@@ -120,24 +124,28 @@ async def scrape_ats_boards(keywords: str) -> list[dict]:
                     r = await client.get(url)
                     if not r.is_success:
                         continue
-                    jobs = r.json().get("jobPostings", r.json() if isinstance(r.json(), list) else [])
+                    # Ashby returns { "jobs": [...], "apiVersion": "..." }
+                    data = r.json()
+                    jobs = data.get("jobs") or data.get("jobPostings") or (data if isinstance(data, list) else [])
                     for j in jobs:
                         title = j.get("title", "")
                         if not any(t in title.lower() for t in terms):
                             continue
                         job_id = str(j.get("id", ""))
+                        # jobUrl is the full Ashby board URL — use it directly
+                        job_url = j.get("jobUrl") or f"https://jobs.ashbyhq.com/{token}/{job_id}"
                         results.append({
                             "external_id": f"ashby-{token}-{job_id}",
                             "title": title,
                             "company": token.capitalize(),
-                            "location": j.get("location", ""),
-                            "description": "",
-                            "apply_url": f"https://jobs.ashbyhq.com/{token}/{job_id}",
+                            "location": j.get("location") or j.get("workplaceType", ""),
+                            "description": j.get("descriptionPlain", ""),
+                            "apply_url": job_url,
                             "source": "ashby_direct",
-                            "date_posted": "",
+                            "date_posted": j.get("publishedAt", ""),
                             "salary_min": None,
                             "salary_max": None,
-                            "remote": "",
+                            "remote": j.get("workplaceType", ""),
                         })
             except Exception as e:
                 print(f"[ats_scraper] {platform}/{token}: {e}")
