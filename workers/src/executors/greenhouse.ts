@@ -8,7 +8,9 @@ import type { Env, UserProfile, ApplicationResult, GreenhouseQuestion } from '@a
 import { callLLM } from '../core/llm'
 
 const BASE       = 'https://boards-api.greenhouse.io/v1/boards'
-const BOARD_BASE = 'https://boards.greenhouse.io'
+// Greenhouse migrated the job board UI to job-boards.greenhouse.io
+// This is where the React SPA renders the actual application form
+const BOARD_BASE = 'https://job-boards.greenhouse.io'
 
 /**
  * Apply to a Greenhouse job. Always two steps + one of two submission paths:
@@ -101,55 +103,76 @@ async function applyGreenhouseViaBrowser(
 
   // The Playwright script runs inside Browserless's Chromium instance.
   // We pass profile data via the `context` object so no strings need escaping.
-  const playwrightScript = `
+  // NOTE: Browserless /function endpoint uses Puppeteer API, not Playwright.
+  // Use page.evaluate() + native value setter for React form filling.
+  // page.fill() is Playwright-only and will throw here.
+  const puppeteerScript = `
     export default async ({ page, context }) => {
       const { profile, answers, jobUrl } = context;
 
-      await page.goto(jobUrl, { waitUntil: 'networkidle', timeout: 30000 });
+      await page.goto(jobUrl, { waitUntil: 'networkidle0', timeout: 30000 });
 
-      // Fill standard fields — Greenhouse uses consistent IDs
-      await page.fill('#first_name', profile.firstName || '');
-      await page.fill('#last_name',  profile.lastName  || '');
-      await page.fill('#email',      profile.email     || '');
-      if (profile.phone) await page.fill('#phone', profile.phone);
-
-      // Upload resume — convert base64 to a temporary file input
-      if (context.resumeBase64) {
-        const resumeBuffer = Buffer.from(context.resumeBase64, 'base64');
-        await page.setInputFiles('#resume', {
-          name:     'resume.pdf',
-          mimeType: 'application/pdf',
-          buffer:   resumeBuffer,
-        });
+      // Wait for Greenhouse React SPA to hydrate and render the form
+      try {
+        await page.waitForSelector('#first_name', { timeout: 10000 });
+      } catch (e) {
+        return { success: false, error: 'Form not rendered — company uses custom career page: ' + page.url() };
       }
 
-      // Fill LinkedIn / website URLs if fields exist
-      const linkedinField = await page.$('#job_application_linkedin_profile_url');
-      if (linkedinField && profile.linkedinUrl) await linkedinField.fill(profile.linkedinUrl);
+      // Helper: set value on a React-controlled input and trigger synthetic events
+      const setInputValue = async (selector, value) => {
+        if (!value) return;
+        await page.evaluate((sel, val) => {
+          const el = document.querySelector(sel);
+          if (!el) return;
+          const nativeSetter =
+            Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set ||
+            Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+          if (nativeSetter) nativeSetter.call(el, val); else el.value = val;
+          el.dispatchEvent(new Event('input',  { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }, selector, value);
+      };
 
-      const websiteField = await page.$('#job_application_website');
-      if (websiteField && profile.portfolioUrl) await websiteField.fill(profile.portfolioUrl);
+      // Fill standard fields — consistent across all Greenhouse boards
+      await setInputValue('#first_name', profile.firstName || '');
+      await setInputValue('#last_name',  profile.lastName  || '');
+      await setInputValue('#email',      profile.email     || '');
+      await setInputValue('#phone',      profile.phone     || '');
 
-      // Answer each custom question
+      // Upload resume — base64 → tmp file → Puppeteer file input
+      if (context.resumeBase64) {
+        const os   = require('os');
+        const fs   = require('fs');
+        const path = require('path');
+        const tmpPath = path.join(os.tmpdir(), 'resume_' + Date.now() + '.pdf');
+        fs.writeFileSync(tmpPath, Buffer.from(context.resumeBase64, 'base64'));
+        const resumeInput = await page.$('input[name="resume"], #resume, input[type="file"][accept*="pdf"]');
+        if (resumeInput) await resumeInput.uploadFile(tmpPath);
+        fs.unlinkSync(tmpPath);
+      }
+
+      // LinkedIn URL field
+      await setInputValue('input[id*="linkedin"], input[name*="linkedin"]', profile.linkedinUrl || '');
+
+      // Answer custom questions (named question_XXXXXXXX in the new Greenhouse UI)
       for (const answer of answers) {
         const qId = answer.questionId;
         const val = String(answer.answer);
 
-        // Text inputs
-        const textInput = await page.$('input[name="answers[' + qId + '][value]"], textarea[name="answers[' + qId + '][value]"]');
-        if (textInput) { await textInput.fill(val); continue; }
+        const textSel = 'input[name="question_' + qId + '"], textarea[name="question_' + qId + '"], input[id="question_' + qId + '"], textarea[id="question_' + qId + '"]';
+        const textEl = await page.$(textSel);
+        if (textEl) { await setInputValue(textSel.split(',')[0].trim(), val); continue; }
 
-        // Select / dropdown
-        const selectEl = await page.$('select[name="answers[' + qId + '][value]"]');
-        if (selectEl) { await selectEl.selectOption({ value: val }); continue; }
+        const selectEl = await page.$('select[name="question_' + qId + '"], select[id="question_' + qId + '"]');
+        if (selectEl) { await page.select('select[name="question_' + qId + '"]', val); continue; }
 
-        // Radio (yes/no)
-        const radio = await page.$('input[type="radio"][name="answers[' + qId + '][value]"][value="' + val + '"]');
-        if (radio) { await radio.check(); continue; }
+        const radioEl = await page.$('input[type="radio"][name="question_' + qId + '"][value="' + val + '"]');
+        if (radioEl) { await radioEl.click(); continue; }
       }
 
       // Submit the form
-      const submitBtn = await page.$('button[data-submits="true"], input[type="submit"], button[type="submit"]');
+      const submitBtn = await page.$('button[data-submits="true"], button[type="submit"], input[type="submit"]');
       if (!submitBtn) return { success: false, error: 'Submit button not found' };
 
       await Promise.all([
@@ -157,17 +180,17 @@ async function applyGreenhouseViaBrowser(
         submitBtn.click(),
       ]);
 
-      // Check for success — Greenhouse shows a confirmation section
-      const confirmed = await page.$('.application-confirmation, [data-confirmation], .success-message');
-      const errorMsg  = await page.$('.error, .alert-danger');
-
+      // Greenhouse renders a confirmation block after successful submission
+      const confirmed = await page.$('[data-confirmation], .application-confirmation, .confirmation, [class*="confirmation"]');
       if (confirmed) return { success: true, message: 'Application submitted successfully' };
-      if (errorMsg)  return { success: false, error: await errorMsg.innerText() };
 
-      // If redirected away from the board page, treat as success
-      const finalUrl = page.url();
-      const redirectedAway = !finalUrl.includes('greenhouse.io');
-      return { success: redirectedAway, message: finalUrl };
+      const errorEl = await page.$('.error-message, .alert-danger, [role="alert"]');
+      if (errorEl) {
+        const errText = await page.evaluate(el => el.innerText, errorEl);
+        return { success: false, error: errText };
+      }
+
+      return { success: true, message: 'Submitted — final URL: ' + page.url() };
     }
   `
 
@@ -177,7 +200,7 @@ async function applyGreenhouseViaBrowser(
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        code: playwrightScript,
+        code: puppeteerScript,
         context: {
           jobUrl,
           profile: {
