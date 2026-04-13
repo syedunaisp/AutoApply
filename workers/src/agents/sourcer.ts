@@ -1,4 +1,7 @@
 // Sourcer agent — calls the Python scraper VPS and logs results to D1
+// Two sources:
+//   1. /jobs/ats  — Greenhouse + Ashby boards directly (real ATS URLs, descriptions included)
+//   2. /jobs      — jobspy LinkedIn/Indeed/Glassdoor (broad discovery, ~20% have direct URLs)
 // Includes the CRITICAL zero-result alert guard
 
 import type { Env, RawScrapedJob, ScraperResponse } from '@autoapply/types'
@@ -6,6 +9,7 @@ import { writeDeadLetter, sendAdminAlert } from '../utils/dead-letter'
 
 /**
  * Call the Python scraper VPS to fetch job listings.
+ * Queries both the ATS-direct endpoint and the jobspy endpoint, merges results.
  * ALWAYS logs the scrape run to D1, even on zero results.
  * CRITICAL: Fires an admin alert on zero results (silent failure guard).
  */
@@ -15,17 +19,35 @@ export async function runScraper(
   location: string
 ): Promise<RawScrapedJob[]> {
   const scraperUrl = env.SCRAPER_URL
+  const headers = { 'X-API-Key': env.SCRAPER_API_KEY ?? '' }
   const startTime = Date.now()
 
+  // ── Source 1: ATS boards directly (Greenhouse + Ashby) ─────────────────
+  // These return real boards.greenhouse.io / jobs.ashbyhq.com URLs that
+  // detectATS() can route to the correct executor. Run this first so
+  // high-quality jobs are always included regardless of jobspy quota.
+  let atsJobs: RawScrapedJob[] = []
+  try {
+    const atsRes = await fetch(
+      `${scraperUrl}/jobs/ats?keywords=${encodeURIComponent(keywords)}`,
+      { headers }
+    )
+    if (atsRes.ok) {
+      const atsData = await atsRes.json() as ScraperResponse
+      atsJobs = atsData.jobs || []
+      console.log(`[sourcer] ATS boards: ${atsJobs.length} jobs with direct ATS URLs`)
+    }
+  } catch (err) {
+    // Non-fatal — ATS scraper failure doesn't block jobspy
+    console.error('[sourcer] ATS board scrape failed:', err)
+  }
+
+  // ── Source 2: jobspy (LinkedIn / Indeed / Glassdoor) ───────────────────
   let response: Response
   try {
     response = await fetch(
       `${scraperUrl}/jobs?keywords=${encodeURIComponent(keywords)}&location=${encodeURIComponent(location)}`,
-      {
-        headers: {
-          'X-API-Key': env.SCRAPER_API_KEY ?? '',
-        },
-      }
+      { headers }
     )
   } catch (err) {
     await writeDeadLetter(
@@ -33,10 +55,10 @@ export async function runScraper(
       `Scraper unreachable: ${err instanceof Error ? err.message : String(err)}`,
       { keywords, location }
     )
-    // Log failed scrape run
     await logScrapeRun(env, keywords, location, 0, 'failed', Date.now() - startTime,
       err instanceof Error ? err.message : String(err))
-    return []
+    // Return ATS jobs even if jobspy failed
+    return atsJobs
   }
 
   if (!response.ok) {
@@ -45,22 +67,25 @@ export async function runScraper(
       `Scraper returned ${response.status}`,
       { keywords, location, status: response.status }
     )
-    await logScrapeRun(env, keywords, location, 0, 'failed', Date.now() - startTime,
+    await logScrapeRun(env, keywords, location, atsJobs.length, 'partial', Date.now() - startTime,
       `HTTP ${response.status}`)
-    return []
+    return atsJobs
   }
 
   const data = await response.json() as ScraperResponse
 
-  // Log the scrape run — ALWAYS, even on zero results
+  // Merge: ATS-direct jobs + jobspy jobs (deduplicated by external_id in Stage 1)
+  const allJobs = [...atsJobs, ...(data.jobs || [])]
+  const totalCount = allJobs.length
+
   await logScrapeRun(
     env, keywords, location,
-    data.count, data.status,
+    totalCount,
+    totalCount > 0 ? 'success' : 'zero_results',
     Date.now() - startTime
   )
 
-  // CRITICAL: Alert on zero results — silent failure guard
-  if (data.count === 0 || data.status === 'zero_results') {
+  if (totalCount === 0) {
     await sendAdminAlert(
       env,
       `SCRAPER ZERO RESULTS: keywords="${keywords}" location="${location}"`
@@ -68,7 +93,8 @@ export async function runScraper(
     return []
   }
 
-  return data.jobs
+  console.log(`[sourcer] Total: ${totalCount} jobs (${atsJobs.length} ATS direct + ${data.jobs?.length ?? 0} jobspy)`)
+  return allJobs
 }
 
 /**
